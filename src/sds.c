@@ -41,6 +41,9 @@
 
 const char *SDS_NOINIT = "SDS_NOINIT";
 
+/* 获取类型对应的结构体的小
+ * 参数：结构体类型
+ * 返回值：结构体大小*/
 static inline int sdsHdrSize(char type) {
     switch(type&SDS_TYPE_MASK) {
         case SDS_TYPE_5:
@@ -57,6 +60,9 @@ static inline int sdsHdrSize(char type) {
     return 0;
 }
 
+/* 根据长度计算符合存储的结构体大小
+ * 参数：字符串长度
+ * 返回值：结构体类型*/
 static inline char sdsReqType(size_t string_size) {
     if (string_size < 1<<5)
         return SDS_TYPE_5;
@@ -64,7 +70,7 @@ static inline char sdsReqType(size_t string_size) {
         return SDS_TYPE_8;
     if (string_size < 1<<16)
         return SDS_TYPE_16;
-#if (LONG_MAX == LLONG_MAX)
+#if (LONG_MAX == LLONG_MAX)     // 判断系统是否直接64位
     if (string_size < 1ll<<32)
         return SDS_TYPE_32;
     return SDS_TYPE_64;
@@ -86,14 +92,17 @@ static inline char sdsReqType(size_t string_size) {
  * You can print the string with printf() as there is an implicit \0 at the
  * end of the string. However the string is binary safe and can contain
  * \0 characters in the middle, as the length is stored in the sds header. */
+/* 创建一个新的结构体存储init指向的initlen长度的字符串，init为空则相当于申请一个足够容纳initlen+1大小的结构体。
+ * 新申请的内存全部初始化为\0，如果内容是二进制则不能使用标准库的strlen获取长度，只能通过sdslen获取
+ * 结构体能存储的容量也是initlen*/
 sds sdsnewlen(const void *init, size_t initlen) {
     void *sh;
     sds s;
-    char type = sdsReqType(initlen);
+    char type = sdsReqType(initlen);    // 根据字符串长度选择合适的结构体存储
     /* Empty strings are usually created in order to append. Use type 8
      * since type 5 is not good at this. */
     if (type == SDS_TYPE_5 && initlen == 0) type = SDS_TYPE_8;
-    int hdrlen = sdsHdrSize(type);
+    int hdrlen = sdsHdrSize(type);      // 计算结构体大小，用于申请内存空间使用
     unsigned char *fp; /* flags pointer. */
 
     sh = s_malloc(hdrlen+initlen+1);
@@ -102,9 +111,9 @@ sds sdsnewlen(const void *init, size_t initlen) {
     else if (!init)
         memset(sh, 0, hdrlen+initlen+1);
     if (sh == NULL) return NULL;
-    s = (char*)sh+hdrlen;
+    s = (char*)sh+hdrlen;       // s为存储字符串的起始位置
     fp = ((unsigned char*)s)-1;
-    switch(type) {
+    switch(type) {  // 设置结构体长度和容量字段
         case SDS_TYPE_5: {
             *fp = type | (initlen << SDS_TYPE_BITS);
             break;
@@ -190,6 +199,7 @@ void sdsupdatelen(sds s) {
  * However all the existing buffer is not discarded but set as free space
  * so that next append operations will not require allocations up to the
  * number of bytes previously available. */
+/* 清空sds，但是不内存中不会设置为\0*/
 void sdsclear(sds s) {
     sdssetlen(s, 0);
     s[0] = '\0';
@@ -201,6 +211,7 @@ void sdsclear(sds s) {
  *
  * Note: this does not change the *length* of the sds string as returned
  * by sdslen(), but only the free buffer space we have. */
+/* 扩大sds容量，如果addlen<avail，不做任何操作，sds的len不会变化*/
 sds sdsMakeRoomFor(sds s, size_t addlen) {
     void *sh, *newsh;
     size_t avail = sdsavail(s);
@@ -214,7 +225,7 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
     len = sdslen(s);
     sh = (char*)s-sdsHdrSize(oldtype);
     newlen = (len+addlen);
-    if (newlen < SDS_MAX_PREALLOC)
+    if (newlen < SDS_MAX_PREALLOC)  // 小于1k额外申请全部长度的2倍
         newlen *= 2;
     else
         newlen += SDS_MAX_PREALLOC;
@@ -252,6 +263,7 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
  *
  * After the call, the passed sds string is no longer valid and all the
  * references must be substituted with the new pointer returned by the call. */
+/* 缩容，缩容后容量与长度一样，并且原指针可能失效*/
 sds sdsRemoveFreeSpace(sds s) {
     void *sh, *newsh;
     char type, oldtype = s[-1] & SDS_TYPE_MASK;
@@ -296,6 +308,7 @@ sds sdsRemoveFreeSpace(sds s) {
  * 3) The free buffer at the end if any.
  * 4) The implicit null term.
  */
+/* 返回sds的全部大小，包括结构体的大小、容量及\0*/
 size_t sdsAllocSize(sds s) {
     size_t alloc = sdsalloc(s);
     return sdsHdrSize(s[-1])+alloc+1;
@@ -330,6 +343,7 @@ void *sdsAllocPtr(sds s) {
  * ... check for nread <= 0 and handle it ...
  * sdsIncrLen(s, nread);
  */
+/* 当往手动往内存中添加数据后，调用此函数增加结构体里的len字段，当增incr超过剩余容量时会assert*/
 void sdsIncrLen(sds s, ssize_t incr) {
     unsigned char flags = s[-1];
     size_t len;
@@ -376,6 +390,7 @@ void sdsIncrLen(sds s, ssize_t incr) {
  *
  * if the specified length is smaller than the current length, no operation
  * is performed. */
+/* 调用sdsMakeRoomFor扩容*/
 sds sdsgrowzero(sds s, size_t len) {
     size_t curlen = sdslen(s);
 
@@ -394,6 +409,7 @@ sds sdsgrowzero(sds s, size_t len) {
  *
  * After the call, the passed sds string is no longer valid and all the
  * references must be substituted with the new pointer returned by the call. */
+/* 字符串拼接，二进制安全，s可能失效*/
 sds sdscatlen(sds s, const void *t, size_t len) {
     size_t curlen = sdslen(s);
 
@@ -409,6 +425,7 @@ sds sdscatlen(sds s, const void *t, size_t len) {
  *
  * After the call, the passed sds string is no longer valid and all the
  * references must be substituted with the new pointer returned by the call. */
+/* \0结束的字符串拼接，s可能失效*/
 sds sdscat(sds s, const char *t) {
     return sdscatlen(s, t, strlen(t));
 }
@@ -417,12 +434,14 @@ sds sdscat(sds s, const char *t) {
  *
  * After the call, the modified sds string is no longer valid and all the
  * references must be substituted with the new pointer returned by the call. */
+/* 字符串拼接，二进制安全，s可能失效*/
 sds sdscatsds(sds s, const sds t) {
     return sdscatlen(s, t, sdslen(t));
 }
 
 /* Destructively modify the sds string 's' to hold the specified binary
  * safe string pointed by 't' of length 'len' bytes. */
+/* 二进制安全的copy，s空间不足会自动扩容，s可能失效*/
 sds sdscpylen(sds s, const char *t, size_t len) {
     if (sdsalloc(s) < len) {
         s = sdsMakeRoomFor(s,len-sdslen(s));
@@ -436,6 +455,7 @@ sds sdscpylen(sds s, const char *t, size_t len) {
 
 /* Like sdscpylen() but 't' must be a null-termined string so that the length
  * of the string is obtained with strlen(). */
+/* copy \0结束的字符串，s空间不足会自动扩容，s可能失效，调用sdscpylen*/
 sds sdscpy(sds s, const char *t) {
     return sdscpylen(s, t, strlen(t));
 }
@@ -446,6 +466,7 @@ sds sdscpy(sds s, const char *t) {
  *
  * The function returns the length of the null-terminated string
  * representation stored at 's'. */
+/* longlong转字符串，必须确保s的容量够用，返回字符串长度*/
 #define SDS_LLSTR_SIZE 21
 int sdsll2str(char *s, long long value) {
     char *p, aux;
@@ -479,6 +500,7 @@ int sdsll2str(char *s, long long value) {
 }
 
 /* Identical sdsll2str(), but for unsigned long long type. */
+/* ulonglong转字符串，必须确保s的容量够用，返回字符串长度*/
 int sdsull2str(char *s, unsigned long long v) {
     char *p, aux;
     size_t l;
@@ -511,6 +533,7 @@ int sdsull2str(char *s, unsigned long long v) {
  *
  * sdscatprintf(sdsempty(),"%lld\n", value);
  */
+/* long long转字符串，返回sds字符串*/
 sds sdsfromlonglong(long long value) {
     char buf[SDS_LLSTR_SIZE];
     int len = sdsll2str(buf,value);
@@ -519,6 +542,7 @@ sds sdsfromlonglong(long long value) {
 }
 
 /* Like sdscatprintf() but gets va_list instead of being variadic. */
+/* 格式化后再拼接在s后面，自动扩容，s可能失效*/
 sds sdscatvprintf(sds s, const char *fmt, va_list ap) {
     va_list cpy;
     char staticbuf[1024], *buf = staticbuf, *t;
@@ -540,7 +564,7 @@ sds sdscatvprintf(sds s, const char *fmt, va_list ap) {
         va_copy(cpy,ap);
         vsnprintf(buf, buflen, fmt, cpy);
         va_end(cpy);
-        if (buf[buflen-2] != '\0') {
+        if (buf[buflen-2] != '\0') {    // 每次缓冲区不够用时重新申请两倍空间
             if (buf != staticbuf) s_free(buf);
             buflen *= 2;
             buf = s_malloc(buflen);
@@ -597,6 +621,7 @@ sds sdscatprintf(sds s, const char *fmt, ...) {
  * %U - 64 bit unsigned integer (unsigned long long, uint64_t)
  * %% - Verbatim "%" character.
  */
+/* 不使用libc的sprintf，速度比sdscatprintf快，但是能使用的格式有限，自动扩容，s可能失效*/
 sds sdscatfmt(sds s, char const *fmt, ...) {
     size_t initlen = sdslen(s);
     const char *f = fmt;
@@ -701,16 +726,17 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
  *
  * Output will be just "HelloWorld".
  */
+/* 删除字符串前后cset里的字符集*/
 sds sdstrim(sds s, const char *cset) {
     char *start, *end, *sp, *ep;
     size_t len;
 
     sp = start = s;
     ep = end = s+sdslen(s)-1;
-    while(sp <= end && strchr(cset, *sp)) sp++;
-    while(ep > sp && strchr(cset, *ep)) ep--;
+    while(sp <= end && strchr(cset, *sp)) sp++; // 删除左边
+    while(ep > sp && strchr(cset, *ep)) ep--;   // 删除右边
     len = (sp > ep) ? 0 : ((ep-sp)+1);
-    if (s != sp) memmove(s, sp, len);
+    if (s != sp) memmove(s, sp, len);   // 拷贝
     s[len] = '\0';
     sdssetlen(s,len);
     return s;
@@ -732,21 +758,22 @@ sds sdstrim(sds s, const char *cset) {
  * s = sdsnew("Hello World");
  * sdsrange(s,1,-1); => "ello World"
  */
+/* 删除从start开始的end个字符，start和end如果是负数则从右开始算位置*/
 void sdsrange(sds s, ssize_t start, ssize_t end) {
     size_t newlen, len = sdslen(s);
 
     if (len == 0) return;
-    if (start < 0) {
+    if (start < 0) {    // 设置开始位置，如果小于0从字符串尾部往左计算，如果超过范围则从0开始
         start = len+start;
         if (start < 0) start = 0;
     }
-    if (end < 0) {
+    if (end < 0) {      // 设置结束位置，如果小0从字符串尾部往左计算，如果超过范围则从0开始
         end = len+end;
         if (end < 0) end = 0;
     }
-    newlen = (start > end) ? 0 : (end-start)+1;
+    newlen = (start > end) ? 0 : (end-start)+1;     // 如果start>end则删除全部
     if (newlen != 0) {
-        if (start >= (ssize_t)len) {
+        if (start >= (ssize_t)len) {    // start大于长度，则清空
             newlen = 0;
         } else if (end >= (ssize_t)len) {
             end = len-1;
@@ -813,14 +840,23 @@ int sdscmp(const sds s1, const sds s2) {
  * requires length arguments. sdssplit() is just the
  * same function but for zero-terminated strings.
  */
+/* 分割字符串，二进制安全
+ * 参数：
+ *     s：字符串
+ *     len：长度
+ *     sep：分割符集
+ *     seplen：分割符个数
+ *     *count：分割后的子串数量
+ * 返回值：
+ *     子串数组。非空时需要调用sdsfreesplitres释放空间*/
 sds *sdssplitlen(const char *s, ssize_t len, const char *sep, int seplen, int *count) {
     int elements = 0, slots = 5;
     long start = 0, j;
-    sds *tokens;
+    sds *tokens;    // 指针数组
 
     if (seplen < 1 || len < 0) return NULL;
 
-    tokens = s_malloc(sizeof(sds)*slots);
+    tokens = s_malloc(sizeof(sds)*slots);   // 默认分配5个槽
     if (tokens == NULL) return NULL;
 
     if (len == 0) {
@@ -829,10 +865,10 @@ sds *sdssplitlen(const char *s, ssize_t len, const char *sep, int seplen, int *c
     }
     for (j = 0; j < (len-(seplen-1)); j++) {
         /* make sure there is room for the next element and the final one */
-        if (slots < elements+2) {
+        if (slots < elements+2) {   // 只剩两个时就扩容，确保在最后的时候有空间可用
             sds *newtokens;
 
-            slots *= 2;
+            slots *= 2; // 不够时分配当前槽数量的2倍
             newtokens = s_realloc(tokens,sizeof(sds)*slots);
             if (newtokens == NULL) goto cleanup;
             tokens = newtokens;
@@ -853,7 +889,7 @@ sds *sdssplitlen(const char *s, ssize_t len, const char *sep, int seplen, int *c
     *count = elements;
     return tokens;
 
-cleanup:
+cleanup:    // 内存不足时的释放操作
     {
         int i;
         for (i = 0; i < elements; i++) sdsfree(tokens[i]);
@@ -877,6 +913,7 @@ void sdsfreesplitres(sds *tokens, int count) {
  *
  * After the call, the modified sds string is no longer valid and all the
  * references must be substituted with the new pointer returned by the call. */
+/* 将不可打印字符转化为\n\r\t\a\b\\\"，其它的转为\x02x，s会失效*/
 sds sdscatrepr(sds s, const char *p, size_t len) {
     s = sdscatlen(s,"\"",1);
     while(len--) {
@@ -952,6 +989,10 @@ int hex_digit_to_int(char c) {
  * quotes or closed quotes followed by non space characters
  * as in: "foo"bar or "foo'
  */
+/* 分割参数列表，可以用双引号或单引号，支持\xff格式的16进制输入方式，双引号会转化为二进制，单引号不会转换
+ *
+ * 返回值：
+ *     子串数组。非空时需要调用sdsfreesplitres释放空间*/
 sds *sdssplitargs(const char *line, int *argc) {
     const char *p = line;
     char *current = NULL;
@@ -960,7 +1001,7 @@ sds *sdssplitargs(const char *line, int *argc) {
     *argc = 0;
     while(1) {
         /* skip blanks */
-        while(*p && isspace(*p)) p++;
+        while(*p && isspace(*p)) p++;   // 跳过空白字符
         if (*p) {
             /* get a token */
             int inq=0;  /* set to 1 if we are in "quotes" */
@@ -969,7 +1010,7 @@ sds *sdssplitargs(const char *line, int *argc) {
 
             if (current == NULL) current = sdsempty();
             while(!done) {
-                if (inq) {
+                if (inq) {  // 使用双引号
                     if (*p == '\\' && *(p+1) == 'x' &&
                                              is_hex_digit(*(p+2)) &&
                                              is_hex_digit(*(p+3)))
@@ -1004,7 +1045,7 @@ sds *sdssplitargs(const char *line, int *argc) {
                     } else {
                         current = sdscatlen(current,p,1);
                     }
-                } else if (insq) {
+                } else if (insq) {  // 使用单引号
                     if (*p == '\\' && *(p+1) == '\'') {
                         p++;
                         current = sdscatlen(current,"'",1);
@@ -1071,6 +1112,7 @@ err:
  *
  * The function returns the sds string pointer, that is always the same
  * as the input pointer since no resize is needed. */
+/* 将s里from替换为to，from和to的长度必须一样，setlen为from长度*/
 sds sdsmapchars(sds s, const char *from, const char *to, size_t setlen) {
     size_t j, i, l = sdslen(s);
 
@@ -1087,6 +1129,7 @@ sds sdsmapchars(sds s, const char *from, const char *to, size_t setlen) {
 
 /* Join an array of C strings using the specified separator (also a C string).
  * Returns the result as an sds string. */
+/* 将字符串数组以sep为分割符拼接成一个字符串*/
 sds sdsjoin(char **argv, int argc, char *sep) {
     sds join = sdsempty();
     int j;
@@ -1099,6 +1142,7 @@ sds sdsjoin(char **argv, int argc, char *sep) {
 }
 
 /* Like sdsjoin, but joins an array of SDS strings. */
+/* 将字符串数组以sep为分割字符串拼接成一个字符串*/
 sds sdsjoinsds(sds *argv, int argc, const char *sep, size_t seplen) {
     sds join = sdsempty();
     int j;
