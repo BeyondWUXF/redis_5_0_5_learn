@@ -71,6 +71,8 @@ void zlibc_free(void *ptr) {
 #define dallocx(ptr,flags) je_dallocx(ptr,flags)
 #endif
 
+// 记录全局内存分配大小，atomicIncr应该使用_n才对吧？
+// if里的处理主要是考虑对齐问题，保证新增的_n 是 sizeof(long)的倍数
 #define update_zmalloc_stat_alloc(__n) do { \
     size_t _n = (__n); \
     if (_n&(sizeof(long)-1)) _n += sizeof(long)-(_n&(sizeof(long)-1)); \
@@ -83,9 +85,10 @@ void zlibc_free(void *ptr) {
     atomicDecr(used_memory,__n); \
 } while(0)
 
-static size_t used_memory = 0;
+static size_t used_memory = 0;  // 统计已使用内存大小
 pthread_mutex_t used_memory_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+// 内存不足，abort
 static void zmalloc_default_oom(size_t size) {
     fprintf(stderr, "zmalloc: Out of memory trying to allocate %zu bytes\n",
         size);
@@ -255,6 +258,11 @@ size_t zmalloc_get_rss(void) {
     }
     close(fd);
 
+    /* /proc/<pid>/stat里的内容如下：
+     * # cat /proc/7205/stat
+     * 7205 (ChatAccessServe) S 16012 16011 16011 0 -1 1077944576 146154 0 0 0 2959 2981 0 0 20 0 63 0 1339407327 3337031680 147528 18446744073709551615 4194304 7854491 140728180843152 140728180842576 139956997631250 0 0 3231749 2 18446744073709551615 0 0 17 1 0 0 0 0 0 9951920 9957088 9977856 140728180847924 140728180848114 140728180848114 140728180850600 0
+     * */
+
     p = buf;
     count = 23; /* RSS is the 24th field in /proc/<pid>/stat */
     while(p && count--) {
@@ -378,6 +386,7 @@ size_t zmalloc_get_smap_bytes_by_field(char *field, long pid) {
 }
 #endif
 
+// Private_Dirty是映射中已由此进程写入但未被任何其他进程引用的页面
 size_t zmalloc_get_private_dirty(long pid) {
     return zmalloc_get_smap_bytes_by_field("Private_Dirty:",pid);
 }
