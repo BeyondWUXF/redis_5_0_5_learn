@@ -798,20 +798,20 @@ struct sharedObjectsStruct {
 };
 
 /* ZSETs use a specialized version of Skiplists */
-typedef struct zskiplistNode {
-    sds ele;
-    double score;
-    struct zskiplistNode *backward;
-    struct zskiplistLevel {
-        struct zskiplistNode *forward;
-        unsigned long span;
+typedef struct zskiplistNode {  // 跳跃表节点
+    sds ele;        // zset元素
+    double score;   // zset分值
+    struct zskiplistNode *backward; // 单前level的后一个node
+    struct zskiplistLevel {     // 创建节点的函数里会根据level数量申请相应的内存空间，放在结构体后面的作用是只需要一次内存申请操作，而且是连续的内存空间
+        struct zskiplistNode *forward;  // 当前层的下一个结点
+        unsigned long span;     // 该结点在某一层与下一个结点之间的元素个数，能快速计算元素的排名等功能
     } level[];
 } zskiplistNode;
 
-typedef struct zskiplist {
-    struct zskiplistNode *header, *tail;
-    unsigned long length;
-    int level;
+typedef struct zskiplist {  // 跳跃表
+    struct zskiplistNode *header, *tail;    // 头结点和尾结点，创建跳跃表时，tail为null
+    unsigned long length;   // level1所有元素个数
+    int level;  // 总层级数
 } zskiplist;
 
 typedef struct zset {
@@ -1660,8 +1660,8 @@ void receiveChildInfo(void);
 
 /* Struct to hold a inclusive/exclusive range spec by score comparison. */
 typedef struct {
-    double min, max;
-    int minex, maxex; /* are min or max exclusive? */
+    double min, max;    // range的范围
+    int minex, maxex; /* are min or max exclusive? */ // minex!=0：包括最小值，maxex!=0：包括最大值
 } zrangespec;
 
 /* Struct to hold an inclusive/exclusive range spec by lexicographic comparison. */
@@ -1670,13 +1670,13 @@ typedef struct {
     int minex, maxex; /* are min or max exclusive? */
 } zlexrangespec;
 
-zskiplist *zslCreate(void);
-void zslFree(zskiplist *zsl);
-zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele);
+zskiplist *zslCreate(void);     // 创建一个跳跃表，申请level为64的空间
+void zslFree(zskiplist *zsl);   // 释放一个跳跃表，所有元素也都会被释放
+zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele);    // 插入一个新元素，跳跃表将获得ele所有权
 unsigned char *zzlInsert(unsigned char *zl, sds ele, double score);
-int zslDelete(zskiplist *zsl, double score, sds ele, zskiplistNode **node);
-zskiplistNode *zslFirstInRange(zskiplist *zsl, zrangespec *range);
-zskiplistNode *zslLastInRange(zskiplist *zsl, zrangespec *range);
+int zslDelete(zskiplist *zsl, double score, sds ele, zskiplistNode **node); // 从跳跃表删除一个元素，返回1表示成功删除元素，否则返回0, 如果node为空，则被删除的元素直接释放node结点，否则只是将元素从跳跃表中软删除后放入node参数
+zskiplistNode *zslFirstInRange(zskiplist *zsl, zrangespec *range);  // 根据分值查找范围内第一个元素
+zskiplistNode *zslLastInRange(zskiplist *zsl, zrangespec *range);   // 根据分值查找范围内最后一个元素
 double zzlGetScore(unsigned char *sptr);
 void zzlNext(unsigned char *zl, unsigned char **eptr, unsigned char **sptr);
 void zzlPrev(unsigned char *zl, unsigned char **eptr, unsigned char **sptr);
@@ -1686,20 +1686,20 @@ unsigned long zsetLength(const robj *zobj);
 void zsetConvert(robj *zobj, int encoding);
 void zsetConvertToZiplistIfNeeded(robj *zobj, size_t maxelelen);
 int zsetScore(robj *zobj, sds member, double *score);
-unsigned long zslGetRank(zskiplist *zsl, double score, sds o);
+unsigned long zslGetRank(zskiplist *zsl, double score, sds o);  // 根据分数和键查找元素的排名，返回0表示没找到元素，大于0为排名
 int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore);
 long zsetRank(robj *zobj, sds ele, int reverse);
 int zsetDel(robj *zobj, sds ele);
 void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey, robj *countarg);
 sds ziplistGetObject(unsigned char *sptr);
-int zslValueGteMin(double value, zrangespec *spec);
-int zslValueLteMax(double value, zrangespec *spec);
-void zslFreeLexRange(zlexrangespec *spec);
-int zslParseLexRange(robj *min, robj *max, zlexrangespec *spec);
+int zslValueGteMin(double value, zrangespec *spec); // 判断value是否在获取范围内，根据zrangespec里的字段判断是否包含最小值
+int zslValueLteMax(double value, zrangespec *spec); // 判断value是否在获取范围内，根据zrangespec里的字段判断是否包含最大
+void zslFreeLexRange(zlexrangespec *spec);  // 释放zlexrangespec结构体和内部的sds
+int zslParseLexRange(robj *min, robj *max, zlexrangespec *spec);    // 根据命令参数解析lex的min、max范围到zlexrangespec，如果成功spec必须调用zslFreeLexRange函数释放
 unsigned char *zzlFirstInLexRange(unsigned char *zl, zlexrangespec *range);
 unsigned char *zzlLastInLexRange(unsigned char *zl, zlexrangespec *range);
-zskiplistNode *zslFirstInLexRange(zskiplist *zsl, zlexrangespec *range);
-zskiplistNode *zslLastInLexRange(zskiplist *zsl, zlexrangespec *range);
+zskiplistNode *zslFirstInLexRange(zskiplist *zsl, zlexrangespec *range);   // 根据元素查找范围里第一个元素
+zskiplistNode *zslLastInLexRange(zskiplist *zsl, zlexrangespec *range);     // 根据元素查找范围里最后一个元素
 int zzlLexValueGteMin(unsigned char *p, zlexrangespec *spec);
 int zzlLexValueLteMax(unsigned char *p, zlexrangespec *spec);
 int zslLexValueGteMin(sds value, zlexrangespec *spec);

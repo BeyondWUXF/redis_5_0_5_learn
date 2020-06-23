@@ -62,30 +62,33 @@
 /*-----------------------------------------------------------------------------
  * Skiplist implementation of the low level API
  *----------------------------------------------------------------------------*/
+// zset保存在hash表（dict）里，同时保存在跳跃表里为了按分值排序使用
 
 int zslLexValueGteMin(sds value, zlexrangespec *spec);
 int zslLexValueLteMax(sds value, zlexrangespec *spec);
 
 /* Create a skiplist node with the specified number of levels.
  * The SDS string 'ele' is referenced by the node after the call. */
+// 创建一个跳跃表节点，设置分值和元素值
 zskiplistNode *zslCreateNode(int level, double score, sds ele) {
     zskiplistNode *zn =
-        zmalloc(sizeof(*zn)+level*sizeof(struct zskiplistLevel));
+        zmalloc(sizeof(*zn)+level*sizeof(struct zskiplistLevel));   // 申请空间，同时根据level数量申请level的空间
     zn->score = score;
     zn->ele = ele;
     return zn;
 }
 
 /* Create a new skiplist. */
+// 创建一个跳跃表，申请level为64的空间
 zskiplist *zslCreate(void) {
     int j;
     zskiplist *zsl;
 
-    zsl = zmalloc(sizeof(*zsl));
-    zsl->level = 1;
+    zsl = zmalloc(sizeof(*zsl));    // 申请zskiplist空间
+    zsl->level = 1;     // 当前level只有一层
     zsl->length = 0;
-    zsl->header = zslCreateNode(ZSKIPLIST_MAXLEVEL,0,NULL);
-    for (j = 0; j < ZSKIPLIST_MAXLEVEL; j++) {
+    zsl->header = zslCreateNode(ZSKIPLIST_MAXLEVEL,0,NULL); // 创建一个头结点
+    for (j = 0; j < ZSKIPLIST_MAXLEVEL; j++) {  // 初始化头结点每层的值
         zsl->header->level[j].forward = NULL;
         zsl->header->level[j].span = 0;
     }
@@ -97,28 +100,32 @@ zskiplist *zslCreate(void) {
 /* Free the specified skiplist node. The referenced SDS string representation
  * of the element is freed too, unless node->ele is set to NULL before calling
  * this function. */
+// 释放一个跳跃表，同时元素ele如果不为空也会被释放
 void zslFreeNode(zskiplistNode *node) {
     sdsfree(node->ele);
     zfree(node);
 }
 
 /* Free a whole skiplist. */
+// 释放一个跳跃表，所有元素也都会被释放
 void zslFree(zskiplist *zsl) {
     zskiplistNode *node = zsl->header->level[0].forward, *next;
 
-    zfree(zsl->header);
-    while(node) {
+    zfree(zsl->header); // 先把头结点释放
+    while(node) {   // 遍历释放所有结点
         next = node->level[0].forward;
         zslFreeNode(node);
         node = next;
     }
-    zfree(zsl);
+    zfree(zsl); // 释放跳跃表
 }
 
 /* Returns a random level for the new skiplist node we are going to create.
  * The return value of this function is between 1 and ZSKIPLIST_MAXLEVEL
  * (both inclusive), with a powerlaw-alike distribution where higher
  * levels are less likely to be returned. */
+// 为新的跳跃表生成随机level，1<=level<=ZSKIPLIST_MAXLEVEL，使用类似于幂律的分布，较高的级别不太可能返回。
+// 抛硬币
 int zslRandomLevel(void) {
     int level = 1;
     while ((random()&0xFFFF) < (ZSKIPLIST_P * 0xFFFF))
@@ -129,16 +136,18 @@ int zslRandomLevel(void) {
 /* Insert a new node in the skiplist. Assumes the element does not already
  * exist (up to the caller to enforce that). The skiplist takes ownership
  * of the passed SDS string 'ele'. */
+// 插入一个新元素，跳跃表将获得ele所有权
 zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele) {
-    zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
-    unsigned int rank[ZSKIPLIST_MAXLEVEL];
+    zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;  // update:每一层结点在该node后插入元素
+    unsigned int rank[ZSKIPLIST_MAXLEVEL];  // 每个结点所有层的span总和
     int i, level;
 
-    serverAssert(!isnan(score));
+    serverAssert(!isnan(score));    // score只能是数值， NaN (Not-A-Number)
     x = zsl->header;
-    for (i = zsl->level-1; i >= 0; i--) {
-        /* store rank that is crossed to reach the insert position */
+    for (i = zsl->level-1; i >= 0; i--) {   // 遍历每一层
+        /* store rank that is crossed to reach the insert position */// 通过score找到插入的位置
         rank[i] = i == (zsl->level-1) ? 0 : rank[i+1];
+        // 遍历当前层的每一个元素，先根据分值比较，如果分值相同，再比较字符串长度，长度相同再比较内容
         while (x->level[i].forward &&
                 (x->level[i].forward->score < score ||
                     (x->level[i].forward->score == score &&
@@ -147,64 +156,73 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele) {
             rank[i] += x->level[i].span;
             x = x->level[i].forward;
         }
-        update[i] = x;
+        update[i] = x;  // 记录插入的位置
     }
     /* we assume the element is not already inside, since we allow duplicated
      * scores, reinserting the same element should never happen since the
      * caller of zslInsert() should test in the hash table if the element is
      * already inside or not. */
-    level = zslRandomLevel();
-    if (level > zsl->level) {
-        for (i = zsl->level; i < level; i++) {
+    // 我们假设元素不在内部，因为我们允许重复分数，重新插入相同的元素应该永远不会发生，如果元素在内部，则zslInsert（）的调用者应该在哈希表中进行测试已经在里面或没有。
+    level = zslRandomLevel();   // 使用幂次定律计算节点的层级
+    if (level > zsl->level) {   // 如果计算出的层级比当前跳跃表的层级更高
+        for (i = zsl->level; i < level; i++) {  // 对新添加的level进行处理
             rank[i] = 0;
-            update[i] = zsl->header;
-            update[i]->level[i].span = zsl->length;
+            update[i] = zsl->header;    // 每一层的头结点都相同
+            update[i]->level[i].span = zsl->length; // 新加入的层跨度为所有元素数量
         }
-        zsl->level = level;
+        zsl->level = level; // 更新跳跃表的层级
     }
-    x = zslCreateNode(level,score,ele);
-    for (i = 0; i < level; i++) {
+    x = zslCreateNode(level,score,ele); // 创建新结点
+    for (i = 0; i < level; i++) {   // 从第1层开始插入元素，第1层肯定要插入新元素
+        // 这两行代码交换旧结点的forward指针，将新结点插入到update之后
         x->level[i].forward = update[i]->level[i].forward;
         update[i]->level[i].forward = x;
 
         /* update span covered by update[i] as x is inserted here */
+        // 更新每个结点的span
         x->level[i].span = update[i]->level[i].span - (rank[0] - rank[i]);
         update[i]->level[i].span = (rank[0] - rank[i]) + 1;
     }
 
     /* increment span for untouched levels */
-    for (i = level; i < zsl->level; i++) {
+    for (i = level; i < zsl->level; i++) {  // 对新添加的level计算span
         update[i]->level[i].span++;
     }
 
-    x->backward = (update[0] == zsl->header) ? NULL : update[0];
-    if (x->level[0].forward)
+    x->backward = (update[0] == zsl->header) ? NULL : update[0];    // 更新新结点的backward
+    if (x->level[0].forward)    // 更新新结点下个结点的backward
         x->level[0].forward->backward = x;
     else
-        zsl->tail = x;
-    zsl->length++;
+        zsl->tail = x;  // 如果插入的是最后一个位置则更新tail
+    zsl->length++;  // 整个跳跃表的元素数量
     return x;
 }
 
 /* Internal function used by zslDelete, zslDeleteByScore and zslDeleteByRank */
+// 删除一个node，内部函数zslDelete, zslDeleteByScore and zslDeleteByRank调用
+// 该函数只是将结点的连接关系从跳跃表中删除，并不会执行释放结点空间的操作
+// zsl: 跳跃表
+// x：删除的node
+// update：需要更新的每层的node
 void zslDeleteNode(zskiplist *zsl, zskiplistNode *x, zskiplistNode **update) {
     int i;
-    for (i = 0; i < zsl->level; i++) {
-        if (update[i]->level[i].forward == x) {
-            update[i]->level[i].span += x->level[i].span - 1;
-            update[i]->level[i].forward = x->level[i].forward;
+    for (i = 0; i < zsl->level; i++) {  // 遍历第一层
+        if (update[i]->level[i].forward == x) { // 如果删除的结点是当前层的结点的下一个元素
+            update[i]->level[i].span += x->level[i].span - 1;   // 更新该结点的span
+            update[i]->level[i].forward = x->level[i].forward;  // 更新结点的forward，软删除当前层的x
         } else {
-            update[i]->level[i].span -= 1;
+            update[i]->level[i].span -= 1;  // 如果被删除的结点不是当前层结点的下个元素，则直接将当前层的span减1，因为第1层的node结点最终会被删除。
         }
     }
+    // 更新第1层的链表关系
     if (x->level[0].forward) {
         x->level[0].forward->backward = x->backward;
     } else {
-        zsl->tail = x->backward;
+        zsl->tail = x->backward;    // 如果x是最后一个结点则更新跳跃表的tail
     }
-    while(zsl->level > 1 && zsl->header->level[zsl->level-1].forward == NULL)
+    while(zsl->level > 1 && zsl->header->level[zsl->level-1].forward == NULL)   // 从最高层开始检查，如果该层没有结点了则降级跳跃表的层级
         zsl->level--;
-    zsl->length--;
+    zsl->length--;  // 更新跳跃表的过犹元素个数
 }
 
 /* Delete an element with matching score/element from the skiplist.
@@ -215,12 +233,15 @@ void zslDeleteNode(zskiplist *zsl, zskiplistNode *x, zskiplistNode **update) {
  * it is not freed (but just unlinked) and *node is set to the node pointer,
  * so that it is possible for the caller to reuse the node (including the
  * referenced SDS string at node->ele). */
+// 从跳跃表删除一个元素，返回1表示成功删除元素，否则返回0
+// 如果node为空，则被删除的元素直接释放node结点，否则只是将元素从跳跃表中软删除后放入node参数
 int zslDelete(zskiplist *zsl, double score, sds ele, zskiplistNode **node) {
-    zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
+    zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;  // update需要更新的每层的结点
     int i;
 
     x = zsl->header;
-    for (i = zsl->level-1; i >= 0; i--) {
+    for (i = zsl->level-1; i >= 0; i--) {   // 查找元素
+        // 遍历当前层的每一个元素，先根据分值比较，如果分值相同，再比较字符串长度，长度相同再比较内容
         while (x->level[i].forward &&
                 (x->level[i].forward->score < score ||
                     (x->level[i].forward->score == score &&
@@ -228,17 +249,18 @@ int zslDelete(zskiplist *zsl, double score, sds ele, zskiplistNode **node) {
         {
             x = x->level[i].forward;
         }
-        update[i] = x;
+        update[i] = x;  // 记录每层需要更新的结点
     }
     /* We may have multiple elements with the same score, what we need
      * is to find the element with both the right score and object. */
+    // 可能有多个具有相同分数的元素，我们需要找到具有正确分数和对象的元素
     x = x->level[0].forward;
     if (x && score == x->score && sdscmp(x->ele,ele) == 0) {
-        zslDeleteNode(zsl, x, update);
-        if (!node)
+        zslDeleteNode(zsl, x, update);  // 从跳跃表中软删除
+        if (!node)  // 如果node为空则释放node结点
             zslFreeNode(x);
         else
-            *node = x;
+            *node = x;  // 否则放入参数交给函数调用者处理
         return 1;
     }
     return 0; /* not found */
@@ -255,6 +277,9 @@ int zslDelete(zskiplist *zsl, double score, sds ele, zskiplistNode **node) {
  * element, which is more costly.
  *
  * The function returns the updated element skiplist node pointer. */
+// 更新已排序集skiplist内的elmenent的分数。调用者必须保证元素存在并且socre值匹配。这个函数不会更新哈希表端的分数，应该由调用者来处理。
+// 注意，这个函数尝试先更新节点，有可能删除旧结点、插入新结点为了以防在分数更新之后节点会完全处于相同的位置。
+// 函数返回更新后的node指针，因为会删除旧结点，插入新结点
 zskiplistNode *zslUpdateScore(zskiplist *zsl, double curscore, sds ele, double newscore) {
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
     int i;
@@ -262,7 +287,8 @@ zskiplistNode *zslUpdateScore(zskiplist *zsl, double curscore, sds ele, double n
     /* We need to seek to element to update to start: this is useful anyway,
      * we'll have to update or remove it. */
     x = zsl->header;
-    for (i = zsl->level-1; i >= 0; i--) {
+    for (i = zsl->level-1; i >= 0; i--) {   // 查找元素
+        // 遍历当前层的每一个元素，先根据分值比较，如果分值相同，再比较字符串长度，长度相同再比较内容
         while (x->level[i].forward &&
                 (x->level[i].forward->score < curscore ||
                     (x->level[i].forward->score == curscore &&
@@ -276,11 +302,12 @@ zskiplistNode *zslUpdateScore(zskiplist *zsl, double curscore, sds ele, double n
     /* Jump to our element: note that this function assumes that the
      * element with the matching score exists. */
     x = x->level[0].forward;
-    serverAssert(x && curscore == x->score && sdscmp(x->ele,ele) == 0);
+    serverAssert(x && curscore == x->score && sdscmp(x->ele,ele) == 0); // 调用才必须保证函数存在并且分值匹配
 
     /* If the node, after the score update, would be still exactly
      * at the same position, we can just update the score without
      * actually removing and re-inserting the element in the skiplist. */
+    // 如果更新后的分值相对于原来的排序位置不变，都只是更新分值后返回，避免不必要的删除、插入操作
     if ((x->backward == NULL || x->backward->score < newscore) &&
         (x->level[0].forward == NULL || x->level[0].forward->score > newscore))
     {
@@ -290,6 +317,7 @@ zskiplistNode *zslUpdateScore(zskiplist *zsl, double curscore, sds ele, double n
 
     /* No way to reuse the old node: we need to remove and insert a new
      * one at a different place. */
+    // 如果更新后的分值影响当前的排序，则直接删除旧结点重新插入一个新结点
     zslDeleteNode(zsl, x, update);
     zskiplistNode *newnode = zslInsert(zsl,newscore,x->ele);
     /* We reused the old node x->ele SDS string, free the node now
@@ -299,45 +327,50 @@ zskiplistNode *zslUpdateScore(zskiplist *zsl, double curscore, sds ele, double n
     return newnode;
 }
 
+// 判断value是否在获取范围内，根据zrangespec里的字段判断是否包含最小值
 int zslValueGteMin(double value, zrangespec *spec) {
     return spec->minex ? (value > spec->min) : (value >= spec->min);
 }
 
+// 判断value是否在获取范围内，根据zrangespec里的字段判断是否包含最大值
 int zslValueLteMax(double value, zrangespec *spec) {
     return spec->maxex ? (value < spec->max) : (value <= spec->max);
 }
 
 /* Returns if there is a part of the zset is in range. */
+// 判断跳跃表里是否有分值范围内的元素
 int zslIsInRange(zskiplist *zsl, zrangespec *range) {
     zskiplistNode *x;
 
     /* Test for ranges that will always be empty. */
+    // 最小值大于最大值的情况，或者最小值等于最大值但是又不包含最小值和最大值
     if (range->min > range->max ||
             (range->min == range->max && (range->minex || range->maxex)))
         return 0;
     x = zsl->tail;
-    if (x == NULL || !zslValueGteMin(x->score,range))
+    if (x == NULL || !zslValueGteMin(x->score,range))   // 跳跃表最大分值和获取范围的最小值比较
         return 0;
     x = zsl->header->level[0].forward;
-    if (x == NULL || !zslValueLteMax(x->score,range))
+    if (x == NULL || !zslValueLteMax(x->score,range))   // 跳跃表最小分值和获取范围的最大值比较
         return 0;
     return 1;
 }
 
 /* Find the first node that is contained in the specified range.
  * Returns NULL when no element is contained in the range. */
+// 根据分值查找范围内第一个元素
 zskiplistNode *zslFirstInRange(zskiplist *zsl, zrangespec *range) {
     zskiplistNode *x;
     int i;
 
     /* If everything is out of range, return early. */
-    if (!zslIsInRange(zsl,range)) return NULL;
+    if (!zslIsInRange(zsl,range)) return NULL;  // 整个跳跃表不存范围内的过元素
 
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
         /* Go forward while *OUT* of range. */
         while (x->level[i].forward &&
-            !zslValueGteMin(x->level[i].forward->score,range))
+            !zslValueGteMin(x->level[i].forward->score,range))  // 结点分值小于范围内最小值则继续遍历
                 x = x->level[i].forward;
     }
 
@@ -346,12 +379,13 @@ zskiplistNode *zslFirstInRange(zskiplist *zsl, zrangespec *range) {
     serverAssert(x != NULL);
 
     /* Check if score <= max. */
-    if (!zslValueLteMax(x->score,range)) return NULL;
+    if (!zslValueLteMax(x->score,range)) return NULL;   // 如果第一个结点分值比范围内最大值还大，则表示不存在
     return x;
 }
 
 /* Find the last node that is contained in the specified range.
  * Returns NULL when no element is contained in the range. */
+// 根据分值查找范围内最后一个元素
 zskiplistNode *zslLastInRange(zskiplist *zsl, zrangespec *range) {
     zskiplistNode *x;
     int i;
@@ -363,7 +397,7 @@ zskiplistNode *zslLastInRange(zskiplist *zsl, zrangespec *range) {
     for (i = zsl->level-1; i >= 0; i--) {
         /* Go forward while *IN* range. */
         while (x->level[i].forward &&
-            zslValueLteMax(x->level[i].forward->score,range))
+            zslValueLteMax(x->level[i].forward->score,range))   // 结点分值大小范围内小大值则继续遍历
                 x = x->level[i].forward;
     }
 
@@ -371,7 +405,7 @@ zskiplistNode *zslLastInRange(zskiplist *zsl, zrangespec *range) {
     serverAssert(x != NULL);
 
     /* Check if score >= min. */
-    if (!zslValueGteMin(x->score,range)) return NULL;
+    if (!zslValueGteMin(x->score,range)) return NULL;   // 如果最后一结点分值比最小值还小，则表示不存在
     return x;
 }
 
@@ -379,6 +413,8 @@ zskiplistNode *zslLastInRange(zskiplist *zsl, zrangespec *range) {
  * Min and max are inclusive, so a score >= min || score <= max is deleted.
  * Note that this function takes the reference to the hash table view of the
  * sorted set, in order to remove the elements from the hash table too. */
+// 从跳跃表删除min到max分值的元素，min和max是否包含取决于range里的minex和maxex是否大于0
+// 该函数会同时删除dict里元素
 unsigned long zslDeleteRangeByScore(zskiplist *zsl, zrangespec *range, dict *dict) {
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
     unsigned long removed = 0;
@@ -388,12 +424,13 @@ unsigned long zslDeleteRangeByScore(zskiplist *zsl, zrangespec *range, dict *dic
     for (i = zsl->level-1; i >= 0; i--) {
         while (x->level[i].forward && (range->minex ?
             x->level[i].forward->score <= range->min :
-            x->level[i].forward->score < range->min))
+            x->level[i].forward->score < range->min))   // 根据范围的最小值查找需要删除的层级结点
                 x = x->level[i].forward;
         update[i] = x;
     }
 
     /* Current node is the last with score < or <= min. */
+    // 从上面的循环条件可以判断出最后的结点是被删除结点的前一个结点
     x = x->level[0].forward;
 
     /* Delete nodes while in range. */
@@ -403,13 +440,14 @@ unsigned long zslDeleteRangeByScore(zskiplist *zsl, zrangespec *range, dict *dic
         zskiplistNode *next = x->level[0].forward;
         zslDeleteNode(zsl,x,update);
         dictDelete(dict,x->ele);
-        zslFreeNode(x); /* Here is where x->ele is actually released. */
+        zslFreeNode(x); /* Here is where x->ele is actually released. */    // ele元素也会被释放
         removed++;
         x = next;
     }
-    return removed;
+    return removed; // 返回删除的个数
 }
 
+// 在所有节点的score相同的skiplist中，删除 满足member字典序范围 的节点，步骤与zslDeleteRangeByScore一样，只是比较的时候使用的是元素值而不是score
 unsigned long zslDeleteRangeByLex(zskiplist *zsl, zlexrangespec *range, dict *dict) {
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
     unsigned long removed = 0;
@@ -441,6 +479,7 @@ unsigned long zslDeleteRangeByLex(zskiplist *zsl, zlexrangespec *range, dict *di
 
 /* Delete all the elements with rank between start and end from the skiplist.
  * Start and end are inclusive. Note that start and end need to be 1-based */
+// 通过排名来删除start到end间的元素，包括start和end
 unsigned long zslDeleteRangeByRank(zskiplist *zsl, unsigned int start, unsigned int end, dict *dict) {
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
     unsigned long traversed = 0, removed = 0;
@@ -448,7 +487,7 @@ unsigned long zslDeleteRangeByRank(zskiplist *zsl, unsigned int start, unsigned 
 
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
-        while (x->level[i].forward && (traversed + x->level[i].span) < start) {
+        while (x->level[i].forward && (traversed + x->level[i].span) < start) { // 如果当前层结点的span小于start则继续遍历
             traversed += x->level[i].span;
             x = x->level[i].forward;
         }
@@ -473,6 +512,7 @@ unsigned long zslDeleteRangeByRank(zskiplist *zsl, unsigned int start, unsigned 
  * Returns 0 when the element cannot be found, rank otherwise.
  * Note that the rank is 1-based due to the span of zsl->header to the
  * first element. */
+// 根据分数和键查找元素的排名，返回0表示没找到元素，大于0为排名
 unsigned long zslGetRank(zskiplist *zsl, double score, sds ele) {
     zskiplistNode *x;
     unsigned long rank = 0;
@@ -484,12 +524,12 @@ unsigned long zslGetRank(zskiplist *zsl, double score, sds ele) {
             (x->level[i].forward->score < score ||
                 (x->level[i].forward->score == score &&
                 sdscmp(x->level[i].forward->ele,ele) <= 0))) {
-            rank += x->level[i].span;
+            rank += x->level[i].span;   // 如果当前层的结点小于元素，则直接将排名加上span，然后遍历下一个结点
             x = x->level[i].forward;
         }
 
         /* x might be equal to zsl->header, so test if obj is non-NULL */
-        if (x->ele && sdscmp(x->ele,ele) == 0) {
+        if (x->ele && sdscmp(x->ele,ele) == 0) {    // 判断元素值是否相同
             return rank;
         }
     }
@@ -497,6 +537,7 @@ unsigned long zslGetRank(zskiplist *zsl, double score, sds ele) {
 }
 
 /* Finds an element by its rank. The rank argument needs to be 1-based. */
+// 通过排名获取第一个元素，排名从1开始
 zskiplistNode* zslGetElementByRank(zskiplist *zsl, unsigned long rank) {
     zskiplistNode *x;
     unsigned long traversed = 0;
@@ -504,12 +545,12 @@ zskiplistNode* zslGetElementByRank(zskiplist *zsl, unsigned long rank) {
 
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
-        while (x->level[i].forward && (traversed + x->level[i].span) <= rank)
+        while (x->level[i].forward && (traversed + x->level[i].span) <= rank)   // 第一层的span都是1
         {
-            traversed += x->level[i].span;
+            traversed += x->level[i].span;  // 未到排名直接继续下一结点遍历
             x = x->level[i].forward;
         }
-        if (traversed == rank) {
+        if (traversed == rank) {    // 如果找到对应排名直接返回
             return x;
         }
     }
@@ -517,6 +558,7 @@ zskiplistNode* zslGetElementByRank(zskiplist *zsl, unsigned long rank) {
 }
 
 /* Populate the rangespec according to the objects min and max. */
+// 将命令里的对象解析到zrangespec
 static int zslParseRange(robj *min, robj *max, zrangespec *spec) {
     char *eptr;
     spec->minex = spec->maxex = 0;
@@ -525,10 +567,13 @@ static int zslParseRange(robj *min, robj *max, zrangespec *spec) {
      * by the "(" character, it's considered "open". For instance
      * ZRANGEBYSCORE zset (1.5 (2.5 will match min < x < max
      * ZRANGEBYSCORE zset 1.5 2.5 will instead match min <= x <= max */
-    if (min->encoding == OBJ_ENCODING_INT) {
+    // 解析最小值和最大值的范围，"("表示开区间
+    // ZRANGEBYSCORE zset (1.5 (2.5 表示 1.5 < x < 2.5
+    // ZRANGEBYSCORE zset 1.5 2.5 表示 1.5 <= x <= 2.5
+    if (min->encoding == OBJ_ENCODING_INT) {    // 最小值如果是数值类型则直接转为long
         spec->min = (long)min->ptr;
-    } else {
-        if (((char*)min->ptr)[0] == '(') {
+    } else {    // 不是数值类型
+        if (((char*)min->ptr)[0] == '(') {  // 以(开头
             spec->min = strtod((char*)min->ptr+1,&eptr);
             if (eptr[0] != '\0' || isnan(spec->min)) return C_ERR;
             spec->minex = 1;
@@ -537,10 +582,10 @@ static int zslParseRange(robj *min, robj *max, zrangespec *spec) {
             if (eptr[0] != '\0' || isnan(spec->min)) return C_ERR;
         }
     }
-    if (max->encoding == OBJ_ENCODING_INT) {
+    if (max->encoding == OBJ_ENCODING_INT) {    // 最大值如果是数值类型则直接转为long
         spec->max = (long)max->ptr;
-    } else {
-        if (((char*)max->ptr)[0] == '(') {
+    } else {   // 不是数值类型
+        if (((char*)max->ptr)[0] == '(') {  // 以(开头
             spec->max = strtod((char*)max->ptr+1,&eptr);
             if (eptr[0] != '\0' || isnan(spec->max)) return C_ERR;
             spec->maxex = 1;
@@ -597,6 +642,7 @@ int zslParseLexRangeItem(robj *item, sds *dest, int *ex) {
 
 /* Free a lex range structure, must be called only after zelParseLexRange()
  * populated the structure with success (C_OK returned). */
+// 释放zlexrangespec结构体和内部的sds
 void zslFreeLexRange(zlexrangespec *spec) {
     if (spec->min != shared.minstring &&
         spec->min != shared.maxstring) sdsfree(spec->min);
@@ -609,6 +655,7 @@ void zslFreeLexRange(zlexrangespec *spec) {
  * Return C_OK on success. On error C_ERR is returned.
  * When OK is returned the structure must be freed with zslFreeLexRange(),
  * otherwise no release is needed. */
+// 根据命令参数解析lex的min、max范围到zlexrangespec，如果成功spec必须调用zslFreeLexRange函数释放
 int zslParseLexRange(robj *min, robj *max, zlexrangespec *spec) {
     /* The range can't be valid if objects are integer encoded.
      * Every item must start with ( or [. */
@@ -635,12 +682,14 @@ int sdscmplex(sds a, sds b) {
     return sdscmp(a,b);
 }
 
+// 分值为字符串表示时，判断value是否在获取范围内，根据zrangespec里的字段判断是否包含最小值
 int zslLexValueGteMin(sds value, zlexrangespec *spec) {
     return spec->minex ?
         (sdscmplex(value,spec->min) > 0) :
         (sdscmplex(value,spec->min) >= 0);
 }
 
+// 分值为字符串表示时，判断value是否在获取范围内，根据zrangespec里的字段判断是否包含最大值
 int zslLexValueLteMax(sds value, zlexrangespec *spec) {
     return spec->maxex ?
         (sdscmplex(value,spec->max) < 0) :
@@ -648,24 +697,26 @@ int zslLexValueLteMax(sds value, zlexrangespec *spec) {
 }
 
 /* Returns if there is a part of the zset is in the lex range. */
+// 判断跳跃表里是否存在zlexrangespec范围内的元素
 int zslIsInLexRange(zskiplist *zsl, zlexrangespec *range) {
     zskiplistNode *x;
 
     /* Test for ranges that will always be empty. */
     int cmp = sdscmplex(range->min,range->max);
-    if (cmp > 0 || (cmp == 0 && (range->minex || range->maxex)))
+    if (cmp > 0 || (cmp == 0 && (range->minex || range->maxex)))    // 如果范围不正确直接返回
         return 0;
     x = zsl->tail;
-    if (x == NULL || !zslLexValueGteMin(x->ele,range))
+    if (x == NULL || !zslLexValueGteMin(x->ele,range))  // 如果最后一个元素小于min则说明不存在
         return 0;
     x = zsl->header->level[0].forward;
-    if (x == NULL || !zslLexValueLteMax(x->ele,range))
+    if (x == NULL || !zslLexValueLteMax(x->ele,range))  // 如果第一个元素大小max则说明不存在
         return 0;
     return 1;
 }
 
 /* Find the first node that is contained in the specified lex range.
  * Returns NULL when no element is contained in the range. */
+// 根据元素查找范围里第一个元素
 zskiplistNode *zslFirstInLexRange(zskiplist *zsl, zlexrangespec *range) {
     zskiplistNode *x;
     int i;
@@ -692,6 +743,7 @@ zskiplistNode *zslFirstInLexRange(zskiplist *zsl, zlexrangespec *range) {
 
 /* Find the last node that is contained in the specified range.
  * Returns NULL when no element is contained in the range. */
+// 根据元素查找范围里最后一个元素
 zskiplistNode *zslLastInLexRange(zskiplist *zsl, zlexrangespec *range) {
     zskiplistNode *x;
     int i;
