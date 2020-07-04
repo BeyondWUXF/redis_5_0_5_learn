@@ -36,16 +36,18 @@
 #include "config.h"
 #include <stdint.h>
 
-void memrev16(void *p);
-void memrev32(void *p);
-void memrev64(void *p);
-uint16_t intrev16(uint16_t v);
-uint32_t intrev32(uint32_t v);
-uint64_t intrev64(uint64_t v);
+void memrev16(void *p); // 将16位的整数转为大端
+void memrev32(void *p); // 将32位的整数转为大端
+void memrev64(void *p); // 将64位的整数转为大端
+uint16_t intrev16(uint16_t v);  // 调用memrev16(&v);
+uint32_t intrev32(uint32_t v);  // 调用memrev32(&v);
+uint64_t intrev64(uint64_t v);  // 调用memrev64(&v);
 
+// 大小端转换
+// 只有在目标主机是大端端时才执行实际转换的函数的变体
 /* variants of the function doing the actual conversion only if the target
  * host is big endian */
-#if (BYTE_ORDER == LITTLE_ENDIAN)
+#if (BYTE_ORDER == LITTLE_ENDIAN)       // 如果系统是小端的不做任何处理
 #define memrev16ifbe(p) ((void)(0))
 #define memrev32ifbe(p) ((void)(0))
 #define memrev64ifbe(p) ((void)(0))

@@ -44,6 +44,7 @@
 
 #include <stdint.h>
 
+// 将16位的整数转为大端
 /* Toggle the 16 bit unsigned integer pointed by *p from little endian to
  * big endian */
 void memrev16(void *p) {
@@ -54,6 +55,7 @@ void memrev16(void *p) {
     x[1] = t;
 }
 
+// 将32位的整数转为大端
 /* Toggle the 32 bit unsigned integer pointed by *p from little endian to
  * big endian */
 void memrev32(void *p) {
@@ -67,6 +69,7 @@ void memrev32(void *p) {
     x[2] = t;
 }
 
+// 将64位的整数转为大端
 /* Toggle the 64 bit unsigned integer pointed by *p from little endian to
  * big endian */
 void memrev64(void *p) {
