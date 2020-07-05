@@ -44,13 +44,13 @@
 #include <stdint.h>
 
 #define N	16
-#define MASK	((1 << (N - 1)) + (1 << (N - 1)) - 1)
-#define LOW(x)	((unsigned)(x) & MASK)
-#define HIGH(x)	LOW((x) >> N)
+#define MASK	((1 << (N - 1)) + (1 << (N - 1)) - 1)       // 65535: 1111 1111 1111 1111
+#define LOW(x)	((unsigned)(x) & MASK)  // 获取32位数的低16位
+#define HIGH(x)	LOW((x) >> N)           // 获取32位数的高16位
 #define MUL(x, y, z)	{ int32_t l = (long)(x) * (long)(y); \
-		(z)[0] = LOW(l); (z)[1] = HIGH(l); }
-#define CARRY(x, y)	((int32_t)(x) + (long)(y) > MASK)
-#define ADDEQU(x, y, z)	(z = CARRY(x, (y)), x = LOW(x + (y)))
+		(z)[0] = LOW(l); (z)[1] = HIGH(l); }    // z = x*y
+#define CARRY(x, y)	((int32_t)(x) + (long)(y) > MASK)   // 判断x+y是否大于65535
+#define ADDEQU(x, y, z)	(z = CARRY(x, (y)), x = LOW(x + (y)))   // 如果x+y大于65535则，z为1，x为两数相加的低16位
 #define X0	0x330E
 #define X1	0xABCD
 #define X2	0x1234
@@ -68,11 +68,13 @@
 static uint32_t x[3] = { X0, X1, X2 }, a[3] = { A0, A1, A2 }, c = C;
 static void next(void);
 
+//  获取32位的整形随机数
 int32_t redisLrand48() {
     next();
     return (((int32_t)x[2] << (N - 1)) + (x[1] >> 1));
 }
 
+// 设置种子
 void redisSrand48(int32_t seedval) {
     SEED(X0, LOW(seedval), HIGH(seedval));
 }

@@ -49,6 +49,7 @@
  * Note that this function does not work for dates < 1/1/1970, it is solely
  * designed to work with what time(NULL) may return, and to support Redis
  * logging of the dates, it's not really a complete implementation. */
+// 判断是否为闰年
 static int is_leap_year(time_t year) {
     if (year % 4) return 0;         /* A year not divisible by 4 is not leap. */
     else if (year % 100) return 1;  /* If div by 4 and not 100 is surely leap. */
@@ -56,31 +57,43 @@ static int is_leap_year(time_t year) {
     else return 1;                  /* If div by 100 and not by 400 is leap. */
 }
 
-void nolocks_localtime(struct tm *tmp, time_t t, time_t tz, int dst) {
-    const time_t secs_min = 60;
-    const time_t secs_hour = 3600;
-    const time_t secs_day = 3600*24;
+// 这是localtime()的安全版本，它不包含锁，而且fork()友好。即使是localtime()的_r版本也不能在Redis中安全使用。
+// 当主线程forks()的时候，另一个线程可能正在调用localtime()。然后，当子进程再次调用localtime()时，例如为了将一些东西记录到Redis日志中，它可能会死锁:
+// 在分支进程的地址空间的副本中，锁永远不会被释放。
 
-    t -= tz;                            /* Adjust for timezone. */
-    t += 3600*dst;                      /* Adjust for daylight time. */
-    time_t days = t / secs_day;         /* Days passed since epoch. */
-    time_t seconds = t % secs_day;      /* Remaining seconds. */
+// 此函数以'tz'为参数，'dst'标志用于检查夏时制当前是否有效。
+// 这个函数的调用者应该在main()函数中调用tzset()尽快获得这样的信息，以便从“timezone”全局变量中获得时区偏移量。
+// 要获取夏令时信息(如果它当前是活动的或非活动的)，一个技巧是也尽快调用main()中的localtime()，并从tm结构的tm_isdst字段获取信息。
+// 然而，夏令时时间将来可能会为长时间运行的进程切换，因此这些信息应该在安全的时间刷新。
+
+// 注意，这个函数使用的日期不能< 1/1/1970，它只是用于time(null)可能的返回，并支持Redis日志的日期，这不是一个真正完整的实现。
+void nolocks_localtime(struct tm *tmp, time_t t, time_t tz, int dst) {
+    const time_t secs_min = 60;     // 一分钟的秒数
+    const time_t secs_hour = 3600;  // 一小时的秒数
+    const time_t secs_day = 3600*24;// 一天的秒数
+
+    t -= tz;                            /* Adjust for timezone. */  // 调整时区
+    t += 3600*dst;                      /* Adjust for daylight time. */ // 调整夏令时
+    time_t days = t / secs_day;         /* Days passed since epoch. */  // 过去的天数
+    time_t seconds = t % secs_day;      /* Remaining seconds. */    // 过去的不满一天的秒数
 
     tmp->tm_isdst = dst;
-    tmp->tm_hour = seconds / secs_hour;
-    tmp->tm_min = (seconds % secs_hour) / secs_min;
-    tmp->tm_sec = (seconds % secs_hour) % secs_min;
+    tmp->tm_hour = seconds / secs_hour; // 当天已过去的小时数
+    tmp->tm_min = (seconds % secs_hour) / secs_min; // 当前小时已过去的分钟数
+    tmp->tm_sec = (seconds % secs_hour) % secs_min; // 当前分钟已过去的秒数
 
     /* 1/1/1970 was a Thursday, that is, day 4 from the POV of the tm structure
      * where sunday = 0, so to calculate the day of the week we have to add 4
      * and take the modulo by 7. */
+    // 1970年1月1日是星期四，也就是tm结构的POV的第4天，其中星期日= 0，所以要计算星期几，我们必须把4加起来，然后取7的模。
     tmp->tm_wday = (days+4)%7;
 
     /* Calculate the current year. */
+    // 通过天数计算年份
     tmp->tm_year = 1970;
     while(1) {
         /* Leap years have one day more. */
-        time_t days_this_year = 365 + is_leap_year(tmp->tm_year);
+        time_t days_this_year = 365 + is_leap_year(tmp->tm_year);   // 判断是否为闰年
         if (days_this_year > days) break;
         days -= days_this_year;
         tmp->tm_year++;
@@ -90,6 +103,7 @@ void nolocks_localtime(struct tm *tmp, time_t t, time_t tz, int dst) {
     /* We need to calculate in which month and day of the month we are. To do
      * so we need to skip days according to how many days there are in each
      * month, and adjust for the leap year that has one more day in February. */
+    // 我们需要计算我们是在哪个月和哪个月的哪一天。为了做到这一点，我们需要根据每个月有多少天来跳过几天，并针对二月份多一天的闰年进行调整。
     int mdays[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
     mdays[1] += is_leap_year(tmp->tm_year);
 

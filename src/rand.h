@@ -30,8 +30,8 @@
 #ifndef REDIS_RANDOM_H
 #define REDIS_RANDOM_H
 
-int32_t redisLrand48();
-void redisSrand48(int32_t seedval);
+int32_t redisLrand48(); //  获取32位的整形随机数
+void redisSrand48(int32_t seedval); // 设置种子
 
 #define REDIS_LRAND48_MAX INT32_MAX
 
