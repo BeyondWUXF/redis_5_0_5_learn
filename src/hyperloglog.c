@@ -34,6 +34,14 @@
 #include <stdint.h>
 #include <math.h>
 
+/* HyperLogLog，下面简称为HLL，它是 LogLog 算法的升级版，作用是能够提供不精确的去重计数。存在以下的特点：
+ * 代码实现较难。
+ * 能够使用极少的内存来统计巨量的数据，在 Redis 中实现的 HyperLogLog，只需要12K内存就能统计2^64个数据。
+ * 计数存在一定的误差，误差率整体较低。标准误差为 0.81% 。
+ * 误差可以被设置辅助计算因子进行降低。
+ *
+ * htperLogLog具体介绍：https://www.cnblogs.com/linguanh/p/10460421.html 这篇博客讲的挺清楚的
+ **/
 /* The Redis HyperLogLog implementation is based on the following ideas:
  *
  * * The use of a 64 bit hash function as proposed in [1], in order to don't
