@@ -32,8 +32,10 @@
 
 /*-----------------------------------------------------------------------------
  * String Commands
+ * String 命令相关函数
  *----------------------------------------------------------------------------*/
 
+// 判断长度是否超过512MB
 static int checkStringLength(client *c, long long size) {
     if (size > 512*1024*1024) {
         addReplyError(c,"string exceeds maximum allowed size (512MB)");
@@ -45,8 +47,10 @@ static int checkStringLength(client *c, long long size) {
 /* The setGenericCommand() function implements the SET operation with different
  * options and variants. This function is called in order to implement the
  * following commands: SET, SETEX, PSETEX, SETNX.
+ * setGenericCommand()函数使用不同的选项和变体实现SET操作。调用这个函数是为了实现以下命令:SET、SETEX、PSETEX、SETNX。
  *
  * 'flags' changes the behavior of the command (NX or XX, see belove).
+ * “flags”更改命令的行为(NX或XX，请参见)。
  *
  * 'expire' represents an expire to set in form of a Redis object as passed
  * by the user. It is interpreted according to the specified 'unit'.
@@ -59,22 +63,22 @@ static int checkStringLength(client *c, long long size) {
  * If abort_reply is NULL, "$-1" is used. */
 
 #define OBJ_SET_NO_FLAGS 0
-#define OBJ_SET_NX (1<<0)     /* Set if key not exists. */
-#define OBJ_SET_XX (1<<1)     /* Set if key exists. */
+#define OBJ_SET_NX (1<<0)     /* Set if key not exists. 当key不存在时才设置*/
+#define OBJ_SET_XX (1<<1)     /* Set if key exists. 当key存在时才调协*/
 #define OBJ_SET_EX (1<<2)     /* Set if time in seconds is given */
 #define OBJ_SET_PX (1<<3)     /* Set if time in ms in given */
 
 void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
     long long milliseconds = 0; /* initialized to avoid any harmness warning */
 
-    if (expire) {
+    if (expire) {   // 如果设置了超时时间
         if (getLongLongFromObjectOrReply(c, expire, &milliseconds, NULL) != C_OK)
             return;
         if (milliseconds <= 0) {
             addReplyErrorFormat(c,"invalid expire time in %s",c->cmd->name);
             return;
         }
-        if (unit == UNIT_SECONDS) milliseconds *= 1000;
+        if (unit == UNIT_SECONDS) milliseconds *= 1000; // 如果单位是秒，转为毫秒
     }
 
     if ((flags & OBJ_SET_NX && lookupKeyWrite(c->db,key) != NULL) ||
@@ -93,6 +97,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
 }
 
 /* SET key value [NX] [XX] [EX <seconds>] [PX <milliseconds>] */
+// 解析set命令参数
 void setCommand(client *c) {
     int j;
     robj *expire = NULL;
@@ -116,7 +121,7 @@ void setCommand(client *c) {
         } else if ((a[0] == 'e' || a[0] == 'E') &&
                    (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
                    !(flags & OBJ_SET_PX) && next)
-        {
+        {   // 解析过期时间
             flags |= OBJ_SET_EX;
             unit = UNIT_SECONDS;
             expire = next;
@@ -173,6 +178,7 @@ void getCommand(client *c) {
     getGenericCommand(c);
 }
 
+// 获取命令
 void getsetCommand(client *c) {
     if (getGenericCommand(c) == C_ERR) return;
     c->argv[2] = tryObjectEncoding(c->argv[2]);
