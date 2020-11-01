@@ -379,6 +379,7 @@ typedef long long mstime_t; /* millisecond time type. */
 /* Redis maxmemory strategies. Instead of using just incremental number
  * for this defines, we use a set of flags so that testing for certain
  * properties common to multiple policies is faster. */
+// maxmemory策略。我们使用了一组标志，从而可以更快地测试多个策略所共有的某些属性。
 #define MAXMEMORY_FLAG_LRU (1<<0)
 #define MAXMEMORY_FLAG_LFU (1<<1)
 #define MAXMEMORY_FLAG_ALLKEYS (1<<2)
@@ -585,6 +586,7 @@ typedef struct RedisModuleDigest {
 /* Objects encoding. Some kind of objects like Strings and Hashes can be
  * internally represented in multiple ways. The 'encoding' field of the object
  * is set to one of this fields for this object. */
+// 对象编码。某些类型的对象，如字符串和散列，可以在内部以多种方式表示。对象的“encoding”字段被设置为该对象的其中一个字段。
 #define OBJ_ENCODING_RAW 0     /* Raw representation */
 #define OBJ_ENCODING_INT 1     /* Encoded as integer */
 #define OBJ_ENCODING_HT 2      /* Encoded as hash table */
@@ -604,12 +606,12 @@ typedef struct RedisModuleDigest {
 #define OBJ_SHARED_REFCOUNT INT_MAX
 typedef struct redisObject {
     unsigned type:4;
-    unsigned encoding:4;
+    unsigned encoding:4;    // 编码类型，OBJ_ENCODEING_***宏定义
     unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or
                             * LFU data (least significant 8 bits frequency
                             * and most significant 16 bits access time). */
-    int refcount;
-    void *ptr;
+    int refcount;   // 创建时默认为1
+    void *ptr;      // 数据
 } robj;
 
 /* Macro used to initialize a Redis object allocated on the stack.

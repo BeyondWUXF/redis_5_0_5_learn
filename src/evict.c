@@ -75,6 +75,7 @@ unsigned int getLRUClock(void) {
  * If the current resolution is lower than the frequency we refresh the
  * LRU clock (as it should be in production servers) we return the
  * precomputed value, otherwise we need to resort to a system call. */
+// 此函数用于获取当前LRU时钟。如果当前分辨率低于我们刷新LRU时钟的频率(在生产服务器中应该如此)，我们将返回预计算的值，否则我们需要求助于系统调用。
 unsigned int LRU_CLOCK(void) {
     unsigned int lruclock;
     if (1000/server.hz <= LRU_CLOCK_RESOLUTION) {
@@ -296,6 +297,7 @@ void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evic
 /* Return the current time in minutes, just taking the least significant
  * 16 bits. The returned time is suitable to be stored as LDT (last decrement
  * time) for the LFU implementation. */
+// 返回当前时间(以分钟为单位)，只取最不重要的16位。返回的时间适合存储为LFU实现的LDT(最后递减时间)。
 unsigned long LFUGetTimeInMinutes(void) {
     return (server.unixtime/60) & 65535;
 }
