@@ -31,29 +31,34 @@
 
 /*-----------------------------------------------------------------------------
  * List API
+ * List命令
  *----------------------------------------------------------------------------*/
 
 /* The function pushes an element to the specified list object 'subject',
  * at head or tail position as specified by 'where'.
+ * 函数将元素添加到subject的list的头部或尾部，由where决定
  *
  * There is no need for the caller to increment the refcount of 'value' as
- * the function takes care of it if needed. */
+ * the function takes care of it if needed.
+ * 调用者不需要增加“value”的refcount，因为如果需要，函数会处理它。*/
 void listTypePush(robj *subject, robj *value, int where) {
     if (subject->encoding == OBJ_ENCODING_QUICKLIST) {
         int pos = (where == LIST_HEAD) ? QUICKLIST_HEAD : QUICKLIST_TAIL;
         value = getDecodedObject(value);
         size_t len = sdslen(value->ptr);
         quicklistPush(subject->ptr, value->ptr, len, pos);
-        decrRefCount(value);
+        decrRefCount(value);    // 减少引用数，引用数为0时释放内存
     } else {
-        serverPanic("Unknown list encoding");
+        serverPanic("Unknown list encoding");   // 不是list结果
     }
 }
 
+// 创建一个string对象
 void *listPopSaver(unsigned char *data, unsigned int sz) {
     return createStringObject((char*)data,sz);
 }
 
+// 从subject弹出一个对象，由where决定从头部还是尾部弹出
 robj *listTypePop(robj *subject, int where) {
     long long vlong;
     robj *value = NULL;
@@ -71,6 +76,7 @@ robj *listTypePop(robj *subject, int where) {
     return value;
 }
 
+// 获取list长度
 unsigned long listTypeLength(const robj *subject) {
     if (subject->encoding == OBJ_ENCODING_QUICKLIST) {
         return quicklistCount(subject->ptr);
@@ -79,7 +85,8 @@ unsigned long listTypeLength(const robj *subject) {
     }
 }
 
-/* Initialize an iterator at the specified index. */
+/* Initialize an iterator at the specified index.
+ * 在指定索引处初始化迭代器。*/
 listTypeIterator *listTypeInitIterator(robj *subject, long index,
                                        unsigned char direction) {
     listTypeIterator *li = zmalloc(sizeof(listTypeIterator));
@@ -108,7 +115,8 @@ void listTypeReleaseIterator(listTypeIterator *li) {
 
 /* Stores pointer to current the entry in the provided entry structure
  * and advances the position of the iterator. Returns 1 when the current
- * entry is in fact an entry, 0 otherwise. */
+ * entry is in fact an entry, 0 otherwise.
+ * 在提供的entry结构中存储当前entry的指针，并推进迭代器的位置。如果当前entry实际上是一个list，则返回1，否则返回0。*/
 int listTypeNext(listTypeIterator *li, listTypeEntry *entry) {
     /* Protect from converting when iterating */
     serverAssert(li->subject->encoding == li->encoding);
@@ -122,7 +130,8 @@ int listTypeNext(listTypeIterator *li, listTypeEntry *entry) {
     return 0;
 }
 
-/* Return entry or NULL at the current position of the iterator. */
+/* Return entry or NULL at the current position of the iterator.
+ * 在迭代器的当前位置返回entry或NULL。*/
 robj *listTypeGet(listTypeEntry *entry) {
     robj *value = NULL;
     if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
@@ -138,6 +147,7 @@ robj *listTypeGet(listTypeEntry *entry) {
     return value;
 }
 
+// 在list头部或尾部插入一个元素，如果成功同时减少value的引用计数
 void listTypeInsert(listTypeEntry *entry, robj *value, int where) {
     if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
         value = getDecodedObject(value);
@@ -156,7 +166,8 @@ void listTypeInsert(listTypeEntry *entry, robj *value, int where) {
     }
 }
 
-/* Compare the given object with the entry at the current position. */
+/* Compare the given object with the entry at the current position.
+ * 将给定对象与当前位置的进行比较。*/
 int listTypeEqual(listTypeEntry *entry, robj *o) {
     if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
         serverAssertWithInfo(NULL,o,sdsEncodedObject(o));
@@ -166,7 +177,8 @@ int listTypeEqual(listTypeEntry *entry, robj *o) {
     }
 }
 
-/* Delete the element pointed to. */
+/* Delete the element pointed to.
+ * 删除当前位置的元素*/
 void listTypeDelete(listTypeIterator *iter, listTypeEntry *entry) {
     if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
         quicklistDelEntry(iter->iter, &entry->entry);
@@ -175,7 +187,8 @@ void listTypeDelete(listTypeIterator *iter, listTypeEntry *entry) {
     }
 }
 
-/* Create a quicklist from a single ziplist */
+/* Create a quicklist from a single ziplist
+ * 从一个ziplist创建一个快速列表*/
 void listTypeConvert(robj *subject, int enc) {
     serverAssertWithInfo(NULL,subject,subject->type==OBJ_LIST);
     serverAssertWithInfo(NULL,subject,subject->encoding==OBJ_ENCODING_ZIPLIST);
@@ -193,22 +206,22 @@ void listTypeConvert(robj *subject, int enc) {
 /*-----------------------------------------------------------------------------
  * List Commands
  *----------------------------------------------------------------------------*/
-
+// push命令通用函数
 void pushGenericCommand(client *c, int where) {
     int j, pushed = 0;
-    robj *lobj = lookupKeyWrite(c->db,c->argv[1]);
+    robj *lobj = lookupKeyWrite(c->db,c->argv[1]);  // 先查找key
 
     if (lobj && lobj->type != OBJ_LIST) {
-        addReply(c,shared.wrongtypeerr);
+        addReply(c,shared.wrongtypeerr);    // 如果key存在，但不是list结构，则返回错误
         return;
     }
 
-    for (j = 2; j < c->argc; j++) {
+    for (j = 2; j < c->argc; j++) { // 遍历把有item
         if (!lobj) {
-            lobj = createQuicklistObject();
+            lobj = createQuicklistObject(); // 如果key不存在，则创建
             quicklistSetOptions(lobj->ptr, server.list_max_ziplist_size,
-                                server.list_compress_depth);
-            dbAdd(c->db,c->argv[1],lobj);
+                                server.list_compress_depth);    // 设置选项
+            dbAdd(c->db,c->argv[1],lobj);   // 添加到db
         }
         listTypePush(lobj,c->argv[j],where);
         pushed++;
@@ -217,20 +230,24 @@ void pushGenericCommand(client *c, int where) {
     if (pushed) {
         char *event = (where == LIST_HEAD) ? "lpush" : "rpush";
 
+        // 事件通知
         signalModifiedKey(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_LIST,event,c->argv[1],c->db->id);
     }
     server.dirty += pushed;
 }
 
+// lpush命令
 void lpushCommand(client *c) {
     pushGenericCommand(c,LIST_HEAD);
 }
 
+// rpush命令
 void rpushCommand(client *c) {
     pushGenericCommand(c,LIST_TAIL);
 }
 
+// pushx
 void pushxGenericCommand(client *c, int where) {
     int j, pushed = 0;
     robj *subject;
@@ -261,6 +278,7 @@ void rpushxCommand(client *c) {
     pushxGenericCommand(c,LIST_TAIL);
 }
 
+// insert
 void linsertCommand(client *c) {
     int where;
     robj *subject;
@@ -273,12 +291,12 @@ void linsertCommand(client *c) {
     } else if (strcasecmp(c->argv[2]->ptr,"before") == 0) {
         where = LIST_HEAD;
     } else {
-        addReply(c,shared.syntaxerr);
+        addReply(c,shared.syntaxerr);   // 参数无效
         return;
     }
 
     if ((subject = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
-        checkType(c,subject,OBJ_LIST)) return;
+        checkType(c,subject,OBJ_LIST)) return;  // key不存在
 
     /* Seek pivot from head to tail */
     iter = listTypeInitIterator(subject,0,LIST_TAIL);
@@ -305,15 +323,17 @@ void linsertCommand(client *c) {
     addReplyLongLong(c,listTypeLength(subject));
 }
 
+// 获取长度
 void llenCommand(client *c) {
     robj *o = lookupKeyReadOrReply(c,c->argv[1],shared.czero);
     if (o == NULL || checkType(c,o,OBJ_LIST)) return;
     addReplyLongLong(c,listTypeLength(o));
 }
 
+// 通过索引获取列表中的元素
 void lindexCommand(client *c) {
     robj *o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk);
-    if (o == NULL || checkType(c,o,OBJ_LIST)) return;
+    if (o == NULL || checkType(c,o,OBJ_LIST)) return;   // 不存在或类型不正确
     long index;
     robj *value = NULL;
 
@@ -364,6 +384,7 @@ void lsetCommand(client *c) {
     }
 }
 
+// pop
 void popGenericCommand(client *c, int where) {
     robj *o = lookupKeyWriteOrReply(c,c->argv[1],shared.nullbulk);
     if (o == NULL || checkType(c,o,OBJ_LIST)) return;
@@ -395,6 +416,7 @@ void rpopCommand(client *c) {
     popGenericCommand(c,LIST_TAIL);
 }
 
+// range
 void lrangeCommand(client *c) {
     robj *o;
     long start, end, llen, rangelen;
@@ -604,17 +626,19 @@ void rpoplpushCommand(client *c) {
 
 /*-----------------------------------------------------------------------------
  * Blocking POP operations
+ * 阻塞操作
  *----------------------------------------------------------------------------*/
 
 /* This is a helper function for handleClientsBlockedOnLists(). It's work
  * is to serve a specific client (receiver) that is blocked on 'key'
  * in the context of the specified 'db', doing the following:
+ * 这是handleClientsBlockedOnLists()的帮助函数。它的工作是服务一个特定的客户(接收器)，在'key'上被阻塞在指定的'db'上下文中，做以下工作:
  *
- * 1) Provide the client with the 'value' element.
+ * 1) Provide the client with the 'value' element.向客户端提供“value”元素。
  * 2) If the dstkey is not NULL (we are serving a BRPOPLPUSH) also push the
- *    'value' element on the destination list (the LPUSH side of the command).
+ *    'value' element on the destination list (the LPUSH side of the command).如果dstkey不为NULL(我们提供BRPOPLPUSH)，也将“value”元素推到目标列表(命令的LPUSH端)上。
  * 3) Propagate the resulting BRPOP, BLPOP and additional LPUSH if any into
- *    the AOF and replication channel.
+ *    the AOF and replication channel.将生成的BRPOP、BLPOP和额外的LPUSH(如果有的话)传播到AOF和复制通道中。
  *
  * The argument 'where' is LIST_TAIL or LIST_HEAD, and indicates if the
  * 'value' element was popped from the head (BLPOP) or tail (BRPOP) so that
