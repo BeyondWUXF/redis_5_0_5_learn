@@ -31,6 +31,7 @@
 
 /*-----------------------------------------------------------------------------
  * Set Commands
+ * set命令
  *----------------------------------------------------------------------------*/
 
 void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
@@ -38,7 +39,8 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
 
 /* Factory method to return a set that *can* hold "value". When the object has
  * an integer-encodable value, an intset will be returned. Otherwise a regular
- * hash table. */
+ * hash table.
+ * 工厂方法返回一个集合，其中*can* hold "value"。当对象具有可整型编码的值时，将返回一个intset。否则就是一个普通的哈希表。*/
 robj *setTypeCreate(sds value) {
     if (isSdsRepresentableAsLongLong(value,NULL) == C_OK)
         return createIntsetObject();
@@ -46,9 +48,11 @@ robj *setTypeCreate(sds value) {
 }
 
 /* Add the specified value into a set.
+ * 将指定的值添加到一个集合中。
  *
  * If the value was already member of the set, nothing is done and 0 is
- * returned, otherwise the new element is added and 1 is returned. */
+ * returned, otherwise the new element is added and 1 is returned.
+ * 如果该值已经是集合的成员，则不执行任何操作并返回0，否则添加新元素并返回1。*/
 int setTypeAdd(robj *subject, sds value) {
     long long llval;
     if (subject->encoding == OBJ_ENCODING_HT) {
@@ -85,6 +89,7 @@ int setTypeAdd(robj *subject, sds value) {
     return 0;
 }
 
+// set删除value
 int setTypeRemove(robj *setobj, sds value) {
     long long llval;
     if (setobj->encoding == OBJ_ENCODING_HT) {
@@ -104,6 +109,7 @@ int setTypeRemove(robj *setobj, sds value) {
     return 0;
 }
 
+// 查找set是否存在value
 int setTypeIsMember(robj *subject, sds value) {
     long long llval;
     if (subject->encoding == OBJ_ENCODING_HT) {
@@ -118,6 +124,7 @@ int setTypeIsMember(robj *subject, sds value) {
     return 0;
 }
 
+// set迭代器
 setTypeIterator *setTypeInitIterator(robj *subject) {
     setTypeIterator *si = zmalloc(sizeof(setTypeIterator));
     si->subject = subject;
@@ -140,17 +147,22 @@ void setTypeReleaseIterator(setTypeIterator *si) {
 
 /* Move to the next entry in the set. Returns the object at the current
  * position.
+ * 移动到集合中的下一个条目。返回当前位置的对象。
  *
  * Since set elements can be internally be stored as SDS strings or
  * simple arrays of integers, setTypeNext returns the encoding of the
  * set object you are iterating, and will populate the appropriate pointer
  * (sdsele) or (llele) accordingly.
+ * 因为set元素可以在内部存储为SDS字符串或简单的整数数组，所以setTypeNext返回正在迭代的set对象的编码，
+ * 并相应地填充适当的指针(sdsele)或(llele)。
  *
  * Note that both the sdsele and llele pointers should be passed and cannot
  * be NULL since the function will try to defensively populate the non
  * used field with values which are easy to trap if misused.
+ * 请注意，sdsele和llele指针都应该被传递，并且不能为空，因为函数将尝试用容易被误用的值来防御地填充non - used字段。
  *
- * When there are no longer elements -1 is returned. */
+ * When there are no longer elements -1 is returned.
+ * 当不再有元素时，返回-1。*/
 int setTypeNext(setTypeIterator *si, sds *sdsele, int64_t *llele) {
     if (si->encoding == OBJ_ENCODING_HT) {
         dictEntry *de = dictNext(si->di);
@@ -171,9 +183,12 @@ int setTypeNext(setTypeIterator *si, sds *sdsele, int64_t *llele) {
  * of setTypeNext() is setTypeNextObject(), returning new SDS
  * strings. So if you don't retain a pointer to this object you should call
  * sdsfree() against it.
+ * setTypeNext()的非写时复制友好版本但易于使用的版本是setTypeNextObject()，它返回新的SDS字符串。
+ * 因此，如果你没有保留指向这个对象的指针，你应该对它调用sdsfree()。
  *
  * This function is the way to go for write operations where COW is not
- * an issue. */
+ * an issue.
+ * 在不存在COW问题的情况下，这个函数是用于写操作的一种方法。*/
 sds setTypeNextObject(setTypeIterator *si) {
     int64_t intele;
     sds sdsele;
@@ -196,15 +211,20 @@ sds setTypeNextObject(setTypeIterator *si) {
  * The returned element can be a int64_t value if the set is encoded
  * as an "intset" blob of integers, or an SDS string if the set
  * is a regular set.
+ * 从非空集合中返回随机元素。如果集合被编码为整数的“intset”blob，则返回的元素可以是int64_t值，
+ * 如果集合是常规集合，则返回的元素可以是SDS字符串。
  *
  * The caller provides both pointers to be populated with the right
  * object. The return value of the function is the object->encoding
  * field of the object and is used by the caller to check if the
  * int64_t pointer or the redis object pointer was populated.
+ * 调用者提供了两个用正确对象填充的指针。函数的返回值是对象的object->编码字段，
+ * 调用者使用它来检查int64_t指针或redis对象指针是否被填充。
  *
  * Note that both the sdsele and llele pointers should be passed and cannot
  * be NULL since the function will try to defensively populate the non
- * used field with values which are easy to trap if misused. */
+ * used field with values which are easy to trap if misused.
+ * 请注意，sdsele和llele指针都应该被传递，并且不能为空，因为函数将尝试用容易被误用的值来防御地填充non - used字段。*/
 int setTypeRandomElement(robj *setobj, sds *sdsele, int64_t *llele) {
     if (setobj->encoding == OBJ_ENCODING_HT) {
         dictEntry *de = dictGetRandomKey(setobj->ptr);
@@ -231,7 +251,7 @@ unsigned long setTypeSize(const robj *subject) {
 
 /* Convert the set to specified encoding. The resulting dict (when converting
  * to a hash table) is presized to hold the number of elements in the original
- * set. */
+ * set. 将集合转换为指定的编码。生成的dict(在转换为哈希表时)预先调整大小，以保存原始集合中的元素数量。*/
 void setTypeConvert(robj *setobj, int enc) {
     setTypeIterator *si;
     serverAssertWithInfo(NULL,setobj,setobj->type == OBJ_SET &&
@@ -261,6 +281,7 @@ void setTypeConvert(robj *setobj, int enc) {
     }
 }
 
+// sadd命令
 void saddCommand(client *c) {
     robj *set;
     int j, added = 0;
@@ -287,6 +308,7 @@ void saddCommand(client *c) {
     addReplyLongLong(c,added);
 }
 
+// srem命令
 void sremCommand(client *c) {
     robj *set;
     int j, deleted = 0, keyremoved = 0;
@@ -315,6 +337,9 @@ void sremCommand(client *c) {
     addReplyLongLong(c,deleted);
 }
 
+// smove命令
+// SMOVE SOURCE DESTINATION MEMBER
+// 如果成员元素被成功移除，返回 1 。 如果成员元素不是 source 集合的成员，并且没有任何操作对 destination 集合执行，那么返回 0 。
 void smoveCommand(client *c) {
     robj *srcset, *dstset, *ele;
     srcset = lookupKeyWrite(c->db,c->argv[1]);
@@ -370,6 +395,7 @@ void smoveCommand(client *c) {
     addReply(c,shared.cone);
 }
 
+// sismember命令
 void sismemberCommand(client *c) {
     robj *set;
 
@@ -382,6 +408,7 @@ void sismemberCommand(client *c) {
         addReply(c,shared.czero);
 }
 
+// scard命令
 void scardCommand(client *c) {
     robj *o;
 
